@@ -1,0 +1,51 @@
+name: AWS FORCE Destroy (Without Terraform State)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  aws-force-destroy:
+    runs-on: ubuntu-latest
+    environment: production   # 🔒 manual approval
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: List EC2 Instances
+        run: aws ec2 describe-instances \
+          --query "Reservations[*].Instances[*].InstanceId" \
+          --output table
+
+      - name: Terminate ALL EC2 Instances
+        run: |
+          IDS=$(aws ec2 describe-instances \
+            --query "Reservations[*].Instances[*].InstanceId" \
+            --output text)
+
+          if [ -n "$IDS" ]; then
+            aws ec2 terminate-instances --instance-ids $IDS
+            echo "EC2 termination started"
+          else
+            echo "No EC2 instances found"
+          fi
+
+      - name: Delete ALL Available EBS Volumes
+        run: |
+          VOLS=$(aws ec2 describe-volumes \
+            --filters Name=status,Values=available \
+            --query "Volumes[*].VolumeId" \
+            --output text)
+
+          if [ -n "$VOLS" ]; then
+            for v in $VOLS; do
+              echo "Deleting volume $v"
+              aws ec2 delete-volume --volume-id $v
+            done
+          else
+            echo "No EBS volumes to delete"
+          fi
